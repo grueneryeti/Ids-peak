@@ -1,0 +1,8 @@
+Treiber: https://www.1stvision.com/cameras/IDS/IDS-manuals/uEye_Manual/hw_softwareinstallation.html
+Python:  pip install opencv-python pillow numpy ids-peak ,pip install --upgrade opencv-contrib-python
+Wenn pip für ids-peak nicht geht venv aktiviren dann in den download ordner gehen 
+und den code von hier herunter laden https://pypi.org/user/IDS/  "ids_peak, ids_peak_ipl, ids_peak_afl
+
+
+
+
