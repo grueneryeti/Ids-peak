@@ -1,7 +1,12 @@
+# camera.py
+import cv2
 import threading
 import time
 import numpy as np
-from ids_peak import ids_peak, ids_peak_ipl_extension
+import ids_peak
+import ids_peak.ids_peak as ids_peak
+import ids_peak_ipl.ids_peak_ipl as ids_ipl
+import ids_peak.ids_peak_ipl_extension as ids_ipl_extension
 
 frame_lock = threading.Lock()
 current_frame = None
@@ -10,58 +15,60 @@ def camera_loop():
     global current_frame
 
     ids_peak.Library.Initialize()
-    system_manager = ids_peak.DeviceManager.Instance()
-    system_manager.Update()
-
-    if system_manager.Devices().empty():
+    device_manager = ids_peak.DeviceManager.Instance()
+    device_manager.Update()
+    device_descriptors = device_manager.Devices()
+    if not device_descriptors:
         print("Keine IDS Kamera gefunden.")
         return
 
-    device = system_manager.Devices()[0].OpenDevice(ids_peak.DeviceAccessType_Control)
+    device = device_descriptors[0].OpenDevice(ids_peak.DeviceAccessType_Control)
+    remote_device_nodemap = device.RemoteDevice().NodeMaps()[0]
 
-    data_stream = device.DataStreams()[0].OpenDataStream()
-    nodemap = device.RemoteDevice().NodeMaps()[0]
+    # Kamera konfigurieren
+    remote_device_nodemap.FindNode("TriggerSelector").SetCurrentEntry("ExposureStart")
+    remote_device_nodemap.FindNode("TriggerSource").SetCurrentEntry("Software")
+    remote_device_nodemap.FindNode("TriggerMode").SetCurrentEntry("On")
+    remote_device_nodemap.FindNode("ExposureTime").SetValue(20000)
+    remote_device_nodemap.FindNode("ReverseX").SetValue(False)
+    remote_device_nodemap.FindNode("ReverseY").SetValue(False)
 
-    payload_size = int(nodemap.FindNode("PayloadSize").Value())
-    buffer_count = data_stream.NumBuffersAnnouncedMinRequired()
-    buffers = []
-    for _ in range(buffer_count):
-        buffer = data_stream.AllocAndAnnounceBuffer(payload_size)
-        data_stream.QueueBuffer(buffer)
-        buffers.append(buffer)
+    # Datenstrom vorbereiten
+    datastream = device.DataStreams()[0].OpenDataStream()
+    payload_size = remote_device_nodemap.FindNode("PayloadSize").Value()
+    for _ in range(datastream.NumBuffersAnnouncedMinRequired()):
+        buffer = datastream.AllocAndAnnounceBuffer(payload_size)
+        datastream.QueueBuffer(buffer)
 
-    data_stream.StartAcquisition()
-    nodemap.FindNode("AcquisitionStart").Execute()
-    nodemap.FindNode("AcquisitionStart").WaitUntilDone()
+    datastream.StartAcquisition()
+    remote_device_nodemap.FindNode("AcquisitionStart").Execute()
+    remote_device_nodemap.FindNode("AcquisitionStart").WaitUntilDone()
+
+    print("[Camera] Kamera-Thread gestartet.")
 
     try:
         while True:
-            buffer = data_stream.WaitForFinishedBuffer(5000)
-            if buffer:
-                image = ids_peak_ipl_extension.BufferToImage(buffer)
-                np_img = image.get_numpy_2d()
+            remote_device_nodemap.FindNode("TriggerSoftware").Execute()
+            buffer = datastream.WaitForFinishedBuffer(1000)
+            raw_image = ids_ipl_extension.BufferToImage(buffer)
+            color_image = raw_image.ConvertTo(ids_ipl.PixelFormatName_RGB8)
+            datastream.QueueBuffer(buffer)
 
-                with frame_lock:
-                    current_frame = np_img.copy()
+            frame = color_image.get_numpy_3D()
+            bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-                data_stream.QueueBuffer(buffer)
-            else:
-                print("Kein Bild empfangen.")
-            time.sleep(0.01)
-    except KeyboardInterrupt:
-        pass
+            with frame_lock:
+                current_frame = bgr_frame.copy()
+
+            time.sleep(0.02)
+
+    except Exception as e:
+        print("[Camera] Fehler:", e)
     finally:
-        data_stream.StopAcquisition()
-        nodemap.FindNode("AcquisitionStop").Execute()
-        nodemap.FindNode("AcquisitionStop").WaitUntilDone()
-        for buffer in buffers:
-            data_stream.RevokeBuffer(buffer)
+        print("[Camera] Beende Kamera...")
         device.Close()
         ids_peak.Library.Close()
 
 def get_frame():
     with frame_lock:
-        if current_frame is not None:
-            return current_frame.copy()
-        else:
-            return None
+        return current_frame.copy() if current_frame is not None else None

@@ -18,10 +18,8 @@ def main():
     aruco_thread.start()
 
     gui = CameraGUI()
-    # GUI im Hauptthread starten (NICHT in Thread!)
     gui.run()
 
-    # Wenn GUI beendet wird, Programm beenden
     print("GUI geschlossen, Programm wird beendet.")
     sys.exit()
 

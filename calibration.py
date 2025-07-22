@@ -10,8 +10,8 @@ def run_calibration(frame):
     found, corners = cv2.findChessboardCorners(gray, pattern_size)
 
     if found:
-        print("Checkerboard erkannt – Kalibrierung erfolgreich!")
+        print("Board erkannt, Kalibrierung erfolgreich!")
         return True
     else:
-        print("Checkerboard nicht erkannt.")
+        print("Board nicht erkannt.")
         return False
